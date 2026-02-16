@@ -1,7 +1,12 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf, upsertProfile} from "./flow.js";
+import {
+  getSessionName, goHome, markDone,
+  titleCaseName, loadProfile,
+  safeKey, uploadPdf, upsertProfile,
+  savePreAnswers
+} from "./flow.js";
 
 /**
  * QCM Pré – d’après ton doc "QCM-Formation_Pré_AQM_Stagiaire"
@@ -314,6 +319,29 @@ function endDraw() {
   drawing = false;
 }
 
+function collectAnswers(QUESTIONS) {
+  const out = {};
+
+  for (const q of QUESTIONS) {
+    if (q.type === "multi") {
+      out[q.id] = q.choices
+        .map(([k]) => ({ k, el: document.getElementById(`${q.id}_${k}`) }))
+        .filter((x) => x.el?.checked)
+        .map((x) => x.k);
+    } else {
+      let val = null;
+      for (const [k] of q.choices) {
+        const el = document.getElementById(`${q.id}_${k}`);
+        if (el?.checked) { val = k; break; }
+      }
+      out[q.id] = val;
+    }
+  }
+
+  return out;
+}
+
+
 sig.addEventListener("mousedown", startDraw);
 sig.addEventListener("mousemove", moveDraw);
 sig.addEventListener("mouseup", endDraw);
@@ -499,6 +527,10 @@ document.getElementById("export").addEventListener("click", async () => {
     status.textContent = "Upload vers cloud…";
 
     const pdfBlob = pdf.output("blob");
+
+    const preAnswers = collectAnswers(QUESTIONS);
+
+    await savePreAnswers(sessionName, preAnswers);
 
     const { error } = await uploadPdf(path, pdfBlob);
 

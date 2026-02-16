@@ -1,7 +1,7 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf} from "./flow.js";
+import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf, savePostAnswers, loadAllAnswers, loadProfile} from "./flow.js";
 
 
 const QUESTIONS = [
@@ -259,20 +259,28 @@ document.querySelector("#app").innerHTML = `
     </div>
   </div>
 `;
-
-// ✅ Auto-remplissage depuis le PRE (compatible async)
+// ✅ Auto-remplissage depuis le PRE (fiable)
 const sessionName = getSessionName();
 
 (async () => {
-  const prof = await Promise.resolve(loadProfile(sessionName));
+  try {
+    const prof = await loadProfile(sessionName);
 
-  if (prof?.nom && document.getElementById("nom")) document.getElementById("nom").value = prof.nom;
-  if (prof?.prenom && document.getElementById("prenom")) document.getElementById("prenom").value = prof.prenom;
-  if (prof?.date && document.getElementById("date")) document.getElementById("date").value = prof.date;
-  if (prof?.centre && document.getElementById("centre")) document.getElementById("centre").value = prof.centre;
-  if (prof?.email && document.getElementById("email")) document.getElementById("email").value = prof.email;
+    const nomEl = document.getElementById("nom");
+    const prenomEl = document.getElementById("prenom");
+    const dateEl = document.getElementById("date");
+    const centreEl = document.getElementById("centre");
+    const emailEl = document.getElementById("email");
+
+    if (prof?.nom && nomEl) nomEl.value = prof.nom;
+    if (prof?.prenom && prenomEl) prenomEl.value = prof.prenom;
+    if (prof?.date && dateEl) dateEl.value = prof.date; // yyyy-mm-dd
+    if (prof?.centre && centreEl) centreEl.value = prof.centre;
+    if (prof?.email && emailEl) emailEl.value = prof.email;
+  } catch (e) {
+    console.warn("loadProfile failed", e);
+  }
 })();
-
 
 /* ===== Signature (souris + tactile) ===== */
 const sig = document.getElementById("sig");
@@ -283,14 +291,13 @@ ctx.strokeStyle = "#000";
 
 let drawing = false;
 
-document.getElementById("back").onclick = () => {
-  goHome(sessionName);
-};
+document.getElementById("back").onclick = () => goHome(sessionName);
 
 function getPos(e) {
   const r = sig.getBoundingClientRect();
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const t = e.touches && e.touches[0];
+  const clientX = t ? t.clientX : e.clientX;
+  const clientY = t ? t.clientY : e.clientY;
   return { x: clientX - r.left, y: clientY - r.top };
 }
 
@@ -299,18 +306,46 @@ function startDraw(e) {
   const p = getPos(e);
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
-  e.preventDefault?.();
+  if (e.cancelable) e.preventDefault();
 }
 function moveDraw(e) {
   if (!drawing) return;
   const p = getPos(e);
   ctx.lineTo(p.x, p.y);
   ctx.stroke();
-  e.preventDefault?.();
+  if (e.cancelable) e.preventDefault();
 }
 function endDraw() {
   drawing = false;
 }
+
+function collectAnswers(QUESTIONS) {
+  const out = {};
+
+  for (const q of QUESTIONS) {
+    if (q.type === "multi") {
+      // ex: q7 -> ["A","C"]
+      out[q.id] = q.choices
+        .map(([k]) => ({ k, el: document.getElementById(`${q.id}_${k}`) }))
+        .filter((x) => x.el?.checked)
+        .map((x) => x.k);
+    } else {
+      // single -> "A" / "B" / ...
+      let val = null;
+      for (const [k] of q.choices) {
+        const el = document.getElementById(`${q.id}_${k}`);
+        if (el?.checked) {
+          val = k; // ou el.value (chez toi value = k)
+          break;
+        }
+      }
+      out[q.id] = val;
+    }
+  }
+
+  return out;
+}
+
 
 sig.addEventListener("mousedown", startDraw);
 sig.addEventListener("mousemove", moveDraw);
@@ -324,84 +359,109 @@ sig.addEventListener("touchend", endDraw);
 document.getElementById("clear").addEventListener("click", () => {
   ctx.clearRect(0, 0, sig.width, sig.height);
 });
+
+/* ===== Helpers PDF ===== */
+
+// Fallback CSS.escape (Safari vieux)
+function escCssId(id) {
+  if (window.CSS?.escape) return CSS.escape(id);
+  return id.replace(/([ #;?%&,.+*~\':"!^$[\]()=>|\/@])/g, "\\$1");
+}
+
 function buildPrintableClone() {
   const doc = document.getElementById("doc");
   const clone = doc.cloneNode(true);
 
-  // remplace inputs (text/email/date) par texte lisible
+  // IMPORTANT: largeur A4 stable pour html2canvas
+  const A4PX = 794; // 210mm @ 96dpi
+
+  // inputs => texte
   const sel = 'input[type="text"], input[type="email"], input[type="date"]';
   const originalInputs = doc.querySelectorAll(sel);
   const cloneInputs = clone.querySelectorAll(sel);
 
   cloneInputs.forEach((inp, i) => {
     const val = originalInputs[i]?.value ?? "";
-    const span = document.createElement("div");
-    span.textContent = val || " ";
-    span.style.marginTop = "6px";
-    span.style.padding = "10px 10px";
-    span.style.border = "1px solid rgba(150,144,162,.18)";
-    span.style.borderRadius = "10px";
-    span.style.fontSize = "14px";
-    inp.replaceWith(span);
+    const box = document.createElement("div");
+    box.textContent = val || " ";
+    box.style.marginTop = "6px";
+    box.style.padding = "10px 10px";
+    box.style.border = "1px solid rgba(150,144,162,.18)";
+    box.style.borderRadius = "10px";
+    box.style.fontSize = "14px";
+    inp.replaceWith(box);
   });
 
-  // radios/checkbox -> ☑/☐ (si tu en as)
+  // radios/checkbox => ☑/☐ (en respectant l’ID)
   clone.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach((inp) => {
     const id = inp.getAttribute("id");
-    const orig = id ? doc.querySelector(`#${CSS.escape(id)}`) : null;
-
+    const orig = id ? doc.querySelector(`#${escCssId(id)}`) : null;
     const mark = document.createElement("span");
     mark.textContent = orig?.checked ? "☑" : "☐";
     mark.style.fontSize = "16px";
     inp.replaceWith(mark);
   });
 
-  // signature canvas -> image
+  // signature => image
   const cloneSig = clone.querySelector("#sig");
-  const realSig = document.getElementById("sig");
-  if (cloneSig && realSig) {
+  if (cloneSig) {
     const img = document.createElement("img");
-    img.src = realSig.toDataURL("image/png");
+    img.src = sig.toDataURL("image/png");
     img.style.width = "100%";
+    img.style.maxWidth = "520px";
     img.style.border = "1px solid rgba(0,0,0,.25)";
     img.style.borderRadius = "10px";
     cloneSig.replaceWith(img);
   }
 
-  // supprime les boutons/status dans le clone
+  // supprimer UI
   ["export", "status", "clear", "back"].forEach((id) => clone.querySelector(`#${id}`)?.remove());
   clone.querySelectorAll("button").forEach((b) => b.remove());
 
-  // wrapper hors écran avec largeur A4 FIXE (super important)
+  // wrapper hors écran A4
   const wrapper = document.createElement("div");
   wrapper.style.position = "fixed";
   wrapper.style.left = "-10000px";
   wrapper.style.top = "0";
+  wrapper.style.width = `${A4PX}px`;
   wrapper.style.background = "#fff";
-  wrapper.style.width = "794px";      // A4 @96dpi
   wrapper.style.padding = "0";
   wrapper.style.margin = "0";
 
-  // forcer le clone à prendre la largeur
-  clone.style.width = "794px";
-  clone.style.maxWidth = "794px";
+  // forcer la carte à la largeur A4
+  clone.style.width = `${A4PX}px`;
+  clone.style.maxWidth = `${A4PX}px`;
 
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
-  return { wrapper, clone };
+  return { wrapper, clone, A4PX };
 }
 
+function downloadJson(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ===== Export PDF + Upload + JSON ===== */
 
 document.getElementById("export").addEventListener("click", async () => {
   const status = document.getElementById("status");
   status.textContent = "Génération du PDF…";
 
-  const { wrapper, clone } = buildPrintableClone();
+  const { wrapper, clone, A4PX } = buildPrintableClone();
 
   try {
-    const pdf = new jsPDF({ orientation: "p", unit: "px", format: "a4" });
+    // attendre fonts pour éviter layout cassé
+    if (document.fonts?.ready) await document.fonts.ready;
 
+    // jsPDF en px (match A4)
+    const pdf = new jsPDF({ orientation: "p", unit: "px", format: "a4" });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
@@ -409,19 +469,16 @@ document.getElementById("export").addEventListener("click", async () => {
     const marginX = 24;
 
     async function addBlockToPdf(el, scale = 2) {
-      // attendre chargement des polices (évite layout cassé)
-      if (document.fonts?.ready) await document.fonts.ready;
-
       const canvas = await html2canvas(el, {
         scale,
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
-        width: el.scrollWidth,
-        windowWidth: el.scrollWidth,
+        width: A4PX,
+        windowWidth: A4PX,
       });
 
-      const imgData = canvas.toDataURL("image/png"); // PNG = net
+      const imgData = canvas.toDataURL("image/png");
       const imgW = pageW - marginX * 2;
       const imgH = (canvas.height * imgW) / canvas.width;
 
@@ -434,23 +491,20 @@ document.getElementById("export").addEventListener("click", async () => {
       y += imgH + 16;
     }
 
-
     const header = clone.querySelector(".header");
     const sections = clone.querySelectorAll(".section");
-
-    if (header) await addBlockToPdf(header);
-    if (sections[0]) await addBlockToPdf(sections[0]);
+    if (header) await addBlockToPdf(header, 2);
+    if (sections[0]) await addBlockToPdf(sections[0], 2);
 
     const questions = clone.querySelectorAll(".q");
-    for (const q of questions) await addBlockToPdf(q);
+    for (const q of questions) await addBlockToPdf(q, 2);
 
     const sigSection = clone.querySelector(".sigWrap")?.closest(".section");
-    if (sigSection) await addBlockToPdf(sigSection);
+    if (sigSection) await addBlockToPdf(sigSection, 2);
 
-    // noms normalisés (affichage)
+    // normaliser nom/prenom (affichage)
     const rawNom = (document.getElementById("nom").value || "").trim();
     const rawPrenom = (document.getElementById("prenom").value || "").trim();
-
     const nom = titleCaseName(rawNom);
     const prenom = titleCaseName(rawPrenom);
     document.getElementById("nom").value = nom || "";
@@ -458,37 +512,54 @@ document.getElementById("export").addEventListener("click", async () => {
 
     const centre = (document.getElementById("centre").value || "Centre").trim();
 
-    // ✅ noms safe pour Storage (sans accents/espaces)
+    // storage safe
     const safeNom = safeKey(nom || "SansNom");
     const safePrenom = safeKey(prenom || "SansPrenom");
     const uid = crypto.randomUUID().slice(0, 8);
+    const filenamePdf = `${safeNom}_${safePrenom}_QCM_POST_${uid}.pdf`;
 
-    const filename = `${safeNom}_${safePrenom}_QCM_POST_${uid}.pdf`;
+    // ✅ sauver answers POST + récupérer PRE/POST fusionné
+    const postAnswers = collectAnswers(QUESTIONS);
+    await savePostAnswers(sessionName, postAnswers);
 
-    // ✅ session safe uniquement pour le PATH storage
+    const all = await loadAllAnswers(sessionName);
+    const prof = await loadProfile(sessionName);
+
+    const merged = {
+      version: 1,
+      session: sessionName,
+      identity: prof,
+      pre: all?.pre_answers || null,
+      post: all?.post_answers || null,
+      exportedAt: new Date().toISOString(),
+    };
+
+    // option : télécharger JSON en local
+    const filenameJson = `${safeNom}_${safePrenom}_PRE_POST_RESULTS_${uid}.json`;
+    downloadJson(filenameJson, merged);
+
+    // upload pdf
     const params = new URLSearchParams(window.location.search);
     const sessionForPath = params.get("session") || sessionName || `${centre}_${new Date().toISOString().slice(0, 10)}`;
     const safeSession = safeKey(sessionForPath);
-
-    const path = `${safeSession}/${filename}`;
+    const pathPdf = `${safeSession}/${filenamePdf}`;
 
     status.textContent = "Upload vers cloud…";
     const pdfBlob = pdf.output("blob");
-
-    const { error } = await uploadPdf(path, pdfBlob);
-
+    const { error } = await uploadPdf(pathPdf, pdfBlob);
 
     if (error) {
       console.error(error);
       status.textContent = "❌ Upload échoué";
-    } else {
-      status.textContent = "✅ PDF envoyé dans le cloud";
-      await markDone(sessionName, "post");
-      setTimeout(() => goHome(sessionName), 400);
+      return;
     }
+
+    status.textContent = "✅ PDF envoyé dans le cloud";
+    await markDone(sessionName, "post");
+    setTimeout(() => goHome(sessionName), 400);
   } catch (e) {
     console.error(e);
-    status.textContent = "❌ Erreur PDF: " + (e?.message || e);
+    status.textContent = "❌ Erreur: " + (e?.message || e);
   } finally {
     wrapper.remove();
     setTimeout(() => {

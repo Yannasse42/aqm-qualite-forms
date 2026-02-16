@@ -76,13 +76,14 @@ export async function getProgress(session) {
   return data || { pre: false, post: false, eval: false };
 }
 
-
 export async function markDone(session, step) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("aqm_progress")
     .select("*")
     .eq("session", session)
-    .single();
+    .maybeSingle();
+
+  if (error) console.error("markDone read error:", error);
 
   const next = {
     session,
@@ -93,8 +94,10 @@ export async function markDone(session, step) {
     updated_at: new Date().toISOString(),
   };
 
-  await supabase.from("aqm_progress").upsert(next);
+  const { error: upErr } = await supabase.from("aqm_progress").upsert(next);
+  if (upErr) console.error("markDone upsert error:", upErr);
 }
+
 
 export async function uploadPdf(path, pdfBlob) {
   return await supabase.storage.from("aqm").upload(path, pdfBlob, {
@@ -106,6 +109,62 @@ export async function uploadPdf(path, pdfBlob) {
 export async function resetProgress(session) {
   await supabase.from("aqm_progress").delete().eq("session", session);
 }
+
+export async function savePreAnswers(session, answers) {
+  const { data, error } = await supabase
+    .from("aqm_answers")
+    .select("*")
+    .eq("session", session)
+    .maybeSingle();
+
+  if (error) console.error("savePreAnswers read error:", error);
+
+  const next = {
+    session,
+    pre_answers: answers,
+    post_answers: data?.post_answers || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: upErr } = await supabase.from("aqm_answers").upsert(next);
+  if (upErr) console.error("savePreAnswers upsert error:", upErr);
+}
+
+export async function savePostAnswers(session, answers) {
+  const { data, error } = await supabase
+    .from("aqm_answers")
+    .select("*")
+    .eq("session", session)
+    .maybeSingle();
+
+  if (error) console.error("savePostAnswers read error:", error);
+
+  const next = {
+    session,
+    pre_answers: data?.pre_answers || null,
+    post_answers: answers,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: upErr } = await supabase.from("aqm_answers").upsert(next);
+  if (upErr) console.error("savePostAnswers upsert error:", upErr);
+}
+
+export async function loadAllAnswers(session) {
+  const { data, error } = await supabase
+    .from("aqm_answers")
+    .select("*")
+    .eq("session", session)
+    .maybeSingle();
+
+  if (error) {
+    console.error("loadAllAnswers error:", error);
+    return {};
+  }
+
+  return data || {};
+}
+
 
 // ======================
 // PROFILE CLOUD (aqm_profiles)
