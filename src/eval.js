@@ -1,13 +1,8 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, safeKey } from "./flow.js";
-import { createClient } from "@supabase/supabase-js";
+import { getSessionName, goHome, markDone, safeKey, uploadPdf} from "./flow.js";
 
-const supabase = createClient(
-  "https://elfxuuyhaswzombgaqyh.supabase.co",
-  "sb_publishable_vCse9y1Z3j-MHxZq_4ifUg_4G84oZnw"
-);
 
 
 /**
@@ -484,11 +479,9 @@ document.getElementById("export").addEventListener("click", async () => {
 
     status.textContent = "Upload vers cloud…";
     const pdfBlob = pdf.output("blob");
+    
+    const { error } = await uploadPdf(path, pdfBlob);
 
-    const { error } = await supabase.storage.from("aqm").upload(path, pdfBlob, {
-      contentType: "application/pdf",
-      upsert: true,
-    });
 
     if (error) {
       console.error(error);

@@ -5,6 +5,9 @@ const supabase = createClient(
   "sb_publishable_vCse9y1Z3j-MHxZq_4ifUg_4G84oZnw"
 );
 
+
+
+
 // ======================
 // SESSION (via URL)
 // ======================
@@ -85,6 +88,13 @@ export async function markDone(session, step) {
   };
 
   await supabase.from("aqm_progress").upsert(next);
+}
+
+export async function uploadPdf(path, pdfBlob) {
+  return await supabase.storage.from("aqm").upload(path, pdfBlob, {
+    contentType: "application/pdf",
+    upsert: true,
+  });
 }
 
 export async function resetProgress(session) {

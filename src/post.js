@@ -1,14 +1,8 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey } from "./flow.js";
+import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf} from "./flow.js";
 
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  "https://elfxuuyhaswzombgaqyh.supabase.co",
-  "sb_publishable_vCse9y1Z3j-MHxZq_4ifUg_4G84oZnw"
-);
 
 const QUESTIONS = [
   {
@@ -401,9 +395,9 @@ document.getElementById("export").addEventListener("click", async () => {
     let y = 10;
     const marginX = 10;
 
-    async function addBlockToPdf(el, scale = 2) {
+    async function addBlockToPdf(el, scale = 1.5) {
       const canvas = await html2canvas(el, { scale, useCORS: true });
-      const imgData = canvas.toDataURL("image/png");
+      const imgData = canvas.toDataURL("image/jpeg", 0.82);
 
       const imgW = pageW - marginX * 2;
       const imgH = (canvas.height * imgW) / canvas.width;
@@ -413,7 +407,7 @@ document.getElementById("export").addEventListener("click", async () => {
         y = 10;
       }
 
-      pdf.addImage(imgData, "PNG", marginX, y, imgW, imgH);
+      pdf.addImage(imgData, "JPEG", marginX, y, imgW, imgH);
       y += imgH + 6;
     }
 
@@ -457,10 +451,8 @@ document.getElementById("export").addEventListener("click", async () => {
     status.textContent = "Upload vers cloud…";
     const pdfBlob = pdf.output("blob");
 
-    const { error } = await supabase.storage.from("aqm").upload(path, pdfBlob, {
-      contentType: "application/pdf",
-      upsert: true,
-    });
+    const { error } = await uploadPdf(path, pdfBlob);
+
 
     if (error) {
       console.error(error);
