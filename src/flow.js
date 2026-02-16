@@ -62,14 +62,20 @@ export function titleCaseName(s) {
 // PROGRESSION CLOUD (aqm_progress)
 // ======================
 export async function getProgress(session) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("aqm_progress")
     .select("*")
     .eq("session", session)
-    .single();
+    .maybeSingle();
+
+  if (error) {
+    console.error("getProgress error:", error);
+    return { pre: false, post: false, eval: false };
+  }
 
   return data || { pre: false, post: false, eval: false };
 }
+
 
 export async function markDone(session, step) {
   const { data } = await supabase
@@ -105,14 +111,20 @@ export async function resetProgress(session) {
 // PROFILE CLOUD (aqm_profiles)
 // ======================
 export async function loadProfile(session) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("aqm_profiles")
     .select("*")
     .eq("session", session)
-    .single();
+    .maybeSingle(); // ✅ au lieu de .single()
+
+  if (error) {
+    console.error("loadProfile error:", error);
+    return {};
+  }
 
   return data || {};
 }
+
 
 export function setSessionName(name) {
   // optionnel: petit cache local pour confort
