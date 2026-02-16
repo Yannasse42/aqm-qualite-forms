@@ -1,7 +1,7 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone } from "./flow.js";
+import { getSessionName, goHome, markDone, safeKey } from "./flow.js";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -439,7 +439,6 @@ document.getElementById("export").addEventListener("click", async () => {
 
     async function addBlock(el, scale = 1.35) {
       const canvas = await html2canvas(el, { scale, useCORS: true });
-
       const img = canvas.toDataURL("image/jpeg", 0.82);
 
       const imgW = pageW - marginX * 2;
@@ -454,45 +453,36 @@ document.getElementById("export").addEventListener("click", async () => {
       y += imgH + 6;
     }
 
-    // Blocs : header + sections + sous-blocs "q" (pour éviter coupures)
     const header = clone.querySelector(".header");
     if (header) await addBlock(header);
 
     const sections = Array.from(clone.querySelectorAll(".section"));
-
-    // On ajoute chaque section, mais en “sous-blocs” pour éviter les coupures dans de gros paquets :
     for (const sec of sections) {
-      // ignorer la section actions (elle est vide après suppression UI)
       if (!sec.textContent?.trim()) continue;
-
-      // si la section contient des blocs .q, on ajoute .q par .q
       const qs = sec.querySelectorAll(".q");
-      if (qs.length) {
-        for (const q of qs) await addBlock(q);
-      } else {
-        await addBlock(sec);
-      }
+      if (qs.length) for (const q of qs) await addBlock(q);
+      else await addBlock(sec);
     }
+
+    const sessionName = getSessionName();
 
     const nom = (document.getElementById("nom").value || "").trim();
     const prenom = (document.getElementById("prenom").value || "").trim();
     const centre = (document.getElementById("centre").value || "Centre").trim();
 
-    const safeNom = nom || "SansNom";
-    const safePrenom = prenom || "SansPrenom";
+    const safeNom = safeKey(nom || "SansNom");
+    const safePrenom = safeKey(prenom || "SansPrenom");
     const uid = crypto.randomUUID().slice(0, 8);
 
-    const filename = `${safeNom}_${safePrenom}_EVAL_FORMATION_${uid}.pdf`.replaceAll(" ", "_");
+    const filename = `${safeNom}_${safePrenom}_EVAL_FORMATION_${uid}.pdf`;
 
     const params = new URLSearchParams(window.location.search);
-    const sessionName =
-      params.get("session") ||
-      localStorage.getItem("aqm_session") ||
-      `${centre}_${new Date().toISOString().slice(0, 10)}`;
-    const path = `${sessionName}/${filename}`;
+    const sessionForPath = params.get("session") || sessionName || `${centre}_${new Date().toISOString().slice(0, 10)}`;
+    const safeSession = safeKey(sessionForPath);
+
+    const path = `${safeSession}/${filename}`;
 
     status.textContent = "Upload vers cloud…";
-
     const pdfBlob = pdf.output("blob");
 
     const { error } = await supabase.storage.from("aqm").upload(path, pdfBlob, {
@@ -505,11 +495,9 @@ document.getElementById("export").addEventListener("click", async () => {
       status.textContent = "❌ Upload échoué";
     } else {
       status.textContent = "✅ PDF envoyé dans le cloud";
-      markDone(sessionName, "eval");
+      await markDone(sessionName, "eval");
       setTimeout(() => goHome(sessionName), 400);
-
     }
-
   } catch (e) {
     console.error(e);
     status.textContent = "❌ Erreur PDF: " + (e?.message || e);
@@ -521,4 +509,3 @@ document.getElementById("export").addEventListener("click", async () => {
     }, 1200);
   }
 });
-

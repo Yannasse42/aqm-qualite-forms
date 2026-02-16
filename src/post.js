@@ -1,7 +1,7 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, titleCaseName, loadProfile } from "./flow.js";
+import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey } from "./flow.js";
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -10,10 +10,6 @@ const supabase = createClient(
   "sb_publishable_vCse9y1Z3j-MHxZq_4ifUg_4G84oZnw"
 );
 
-/**
- * QCM Pré – d’après ton doc "QCM-Formation_Pré_AQM_Stagiaire" :contentReference[oaicite:1]{index=1}
- * Q7 = multi réponses (A et C sont attendues dans le doc, mais on ne corrige pas ici).
- */
 const QUESTIONS = [
   {
     id: "q1",
@@ -270,18 +266,17 @@ document.querySelector("#app").innerHTML = `
   </div>
 `;
 
-// Auto-remplissage depuis le PRE
+// ✅ Auto-remplissage depuis le PRE (compatible async)
 const sessionName = getSessionName();
+
 (async () => {
-  const sessionName = getSessionName();
-  const prof = await loadProfile(sessionName);
+  const prof = await Promise.resolve(loadProfile(sessionName));
 
-  if (prof.nom && document.getElementById("nom")) document.getElementById("nom").value = prof.nom;
-  if (prof.prenom && document.getElementById("prenom")) document.getElementById("prenom").value = prof.prenom;
-  if (prof.centre && document.getElementById("centre")) document.getElementById("centre").value = prof.centre;
-  if (prof.email && document.getElementById("email")) document.getElementById("email").value = prof.email;
+  if (prof?.nom && document.getElementById("nom")) document.getElementById("nom").value = prof.nom;
+  if (prof?.prenom && document.getElementById("prenom")) document.getElementById("prenom").value = prof.prenom;
+  if (prof?.centre && document.getElementById("centre")) document.getElementById("centre").value = prof.centre;
+  if (prof?.email && document.getElementById("email")) document.getElementById("email").value = prof.email;
 })();
-
 
 /* ===== Signature (souris + tactile) ===== */
 const sig = document.getElementById("sig");
@@ -293,10 +288,8 @@ ctx.strokeStyle = "#000";
 let drawing = false;
 
 document.getElementById("back").onclick = () => {
-  const session = getSessionName();
-  goHome(session);
+  goHome(sessionName);
 };
-
 
 function getPos(e) {
   const r = sig.getBoundingClientRect();
@@ -332,21 +325,14 @@ sig.addEventListener("touchstart", startDraw, { passive: false });
 sig.addEventListener("touchmove", moveDraw, { passive: false });
 sig.addEventListener("touchend", endDraw);
 
-/* Clear */
 document.getElementById("clear").addEventListener("click", () => {
   ctx.clearRect(0, 0, sig.width, sig.height);
 });
 
-/**
- * IMPORTANT pour un PDF propre :
- * html2canvas ne rend pas toujours les valeurs d'inputs comme tu veux.
- * Donc on clone le document et on remplace inputs par du texte lisible avant capture.
- */
 function buildPrintableClone() {
   const doc = document.getElementById("doc");
   const clone = doc.cloneNode(true);
 
-  // remplacer les inputs text/email/date par des spans
   const originalInputs = doc.querySelectorAll('input[type="text"], input[type="email"], input[type="date"]');
   const cloneInputs = clone.querySelectorAll('input[type="text"], input[type="email"], input[type="date"]');
 
@@ -362,7 +348,6 @@ function buildPrintableClone() {
     inp.replaceWith(span);
   });
 
-  // remplacer radios/checkbox par "☑/☐"
   QUESTIONS.forEach((q) => {
     q.choices.forEach(([k]) => {
       const id = `${q.id}_${k}`;
@@ -376,7 +361,6 @@ function buildPrintableClone() {
     });
   });
 
-  // signature: remplacer le canvas du clone par l'image du canvas réel
   const cloneSig = clone.querySelector("#sig");
   if (cloneSig) {
     const img = document.createElement("img");
@@ -388,18 +372,13 @@ function buildPrintableClone() {
     cloneSig.replaceWith(img);
   }
 
-  // on met le clone hors écran
   const wrapper = document.createElement("div");
   wrapper.style.position = "fixed";
   wrapper.style.left = "-10000px";
   wrapper.style.top = "0";
   wrapper.style.width = doc.offsetWidth + "px";
 
-  // enlever les éléments UI non souhaités dans le PDF
-  const removeIds = ["export", "status", "clear"];
-  removeIds.forEach((id) => clone.querySelector(`#${id}`)?.remove());
-
-  // si tu as une barre actions, on la vire (selon ton HTML)
+  ["export", "status", "clear"].forEach((id) => clone.querySelector(`#${id}`)?.remove());
   clone.querySelectorAll("button").forEach((b) => b.remove());
 
   wrapper.appendChild(clone);
@@ -419,7 +398,7 @@ document.getElementById("export").addEventListener("click", async () => {
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    let y = 10; // marge top
+    let y = 10;
     const marginX = 10;
 
     async function addBlockToPdf(el, scale = 2) {
@@ -429,38 +408,28 @@ document.getElementById("export").addEventListener("click", async () => {
       const imgW = pageW - marginX * 2;
       const imgH = (canvas.height * imgW) / canvas.width;
 
-      // si le bloc ne rentre pas sur la page courante, nouvelle page
       if (y + imgH > pageH - 10) {
         pdf.addPage();
         y = 10;
       }
 
       pdf.addImage(imgData, "PNG", marginX, y, imgW, imgH);
-      y += imgH + 6; // espace entre blocs
+      y += imgH + 6;
     }
 
-    // 1) Ajouter header + identité
     const header = clone.querySelector(".header");
     const sections = clone.querySelectorAll(".section");
 
     if (header) await addBlockToPdf(header);
-
-    // section 0 = identité
     if (sections[0]) await addBlockToPdf(sections[0]);
 
-    // 2) Ajouter chaque question (jamais coupée)
     const questions = clone.querySelectorAll(".q");
-    for (const q of questions) {
-      await addBlockToPdf(q);
-    }
+    for (const q of questions) await addBlockToPdf(q);
 
-    // 3) Section remarques + signature (dernière section)
-    // chez toi : sections[2] correspond à la section signature/remarques
-    // si tu changes l’ordre un jour, ça reste OK car on prend la dernière
     const sigSection = clone.querySelector(".sigWrap")?.closest(".section");
     if (sigSection) await addBlockToPdf(sigSection);
 
-
+    // noms normalisés (affichage)
     const rawNom = (document.getElementById("nom").value || "").trim();
     const rawPrenom = (document.getElementById("prenom").value || "").trim();
 
@@ -469,27 +438,23 @@ document.getElementById("export").addEventListener("click", async () => {
     document.getElementById("nom").value = nom || "";
     document.getElementById("prenom").value = prenom || "";
 
-
     const centre = (document.getElementById("centre").value || "Centre").trim();
 
-    const safeNom = nom || "Sans nom";
-    const safePrenom = prenom || "Sans prénom";
+    // ✅ noms safe pour Storage (sans accents/espaces)
+    const safeNom = safeKey(nom || "SansNom");
+    const safePrenom = safeKey(prenom || "SansPrenom");
     const uid = crypto.randomUUID().slice(0, 8);
 
-    const filename = `${safeNom}_${safePrenom}_QCM_POST_${uid}.pdf`.replaceAll(" ", "_");
+    const filename = `${safeNom}_${safePrenom}_QCM_POST_${uid}.pdf`;
 
-
+    // ✅ session safe uniquement pour le PATH storage
     const params = new URLSearchParams(window.location.search);
-    const sessionForPath =
-      params.get("session") ||
-      localStorage.getItem("aqm_session") ||
-      `${centre}_${new Date().toISOString().slice(0, 10)}`;
+    const sessionForPath = params.get("session") || sessionName || `${centre}_${new Date().toISOString().slice(0, 10)}`;
+    const safeSession = safeKey(sessionForPath);
 
-    const path = `${sessionForPath}/${filename}`;
-
+    const path = `${safeSession}/${filename}`;
 
     status.textContent = "Upload vers cloud…";
-
     const pdfBlob = pdf.output("blob");
 
     const { error } = await supabase.storage.from("aqm").upload(path, pdfBlob, {
@@ -502,20 +467,17 @@ document.getElementById("export").addEventListener("click", async () => {
       status.textContent = "❌ Upload échoué";
     } else {
       status.textContent = "✅ PDF envoyé dans le cloud";
-      markDone(sessionName, "post");
-      setTimeout(() => goHome(sessionForPath), 400);
+      await markDone(sessionName, "post");
+      setTimeout(() => goHome(sessionName), 400);
     }
-
   } catch (e) {
     console.error(e);
     status.textContent = "❌ Erreur PDF: " + (e?.message || e);
   } finally {
     wrapper.remove();
-    // efface le statut après export (optionnel)
     setTimeout(() => {
       const s = document.getElementById("status");
       if (s) s.textContent = "";
     }, 1200);
   }
 });
-
