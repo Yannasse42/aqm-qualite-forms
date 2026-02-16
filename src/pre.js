@@ -1,7 +1,7 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf} from "./flow.js";
+import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf, upsertProfile} from "./flow.js";
 
 /**
  * QCM Pré – d’après ton doc "QCM-Formation_Pré_AQM_Stagiaire"
@@ -446,7 +446,7 @@ document.getElementById("export").addEventListener("click", async () => {
     const sigSection = clone.querySelector(".sigWrap")?.closest(".section");
     if (sigSection) await addBlockToPdf(sigSection);
 
-    // Normalisation Nom/Prénom comme dans POST
+    // Normalisation Nom/Prénom
     const rawNom = (document.getElementById("nom").value || "").trim();
     const rawPrenom = (document.getElementById("prenom").value || "").trim();
 
@@ -455,7 +455,14 @@ document.getElementById("export").addEventListener("click", async () => {
     document.getElementById("nom").value = nom || "";
     document.getElementById("prenom").value = prenom || "";
 
+    // ✅ récupérer les champs AVANT de les utiliser
     const centre = (document.getElementById("centre").value || "Centre").trim();
+    const date = (document.getElementById("date").value || "").trim();
+    const email = (document.getElementById("email").value || "").trim();
+
+    // ✅ Save profil pour auto-remplir POST/EVAL
+    await upsertProfile(sessionName, { nom, prenom, date, centre, email });
+
 
     const safeNom = safeKey(nom || "SansNom");
     const safePrenom = safeKey(prenom || "SansPrenom");

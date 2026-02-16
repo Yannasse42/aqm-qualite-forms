@@ -268,9 +268,11 @@ const sessionName = getSessionName();
 
   if (prof?.nom && document.getElementById("nom")) document.getElementById("nom").value = prof.nom;
   if (prof?.prenom && document.getElementById("prenom")) document.getElementById("prenom").value = prof.prenom;
+  if (prof?.date && document.getElementById("date")) document.getElementById("date").value = prof.date;
   if (prof?.centre && document.getElementById("centre")) document.getElementById("centre").value = prof.centre;
   if (prof?.email && document.getElementById("email")) document.getElementById("email").value = prof.email;
 })();
+
 
 /* ===== Signature (souris + tactile) ===== */
 const sig = document.getElementById("sig");
