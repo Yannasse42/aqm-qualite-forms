@@ -1,7 +1,7 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, titleCaseName, loadProfile } from "./flow.js";
+import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey } from "./flow.js";
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -464,8 +464,9 @@ document.getElementById("export").addEventListener("click", async () => {
 
     const centre = (document.getElementById("centre").value || "Centre").trim();
 
-    const safeNom = nom || "Sans nom";
-    const safePrenom = prenom || "Sans prénom";
+    const safeNom = safeKey(nom || "SansNom");
+    const safePrenom = safeKey(prenom || "SansPrenom");
+
     const uid = crypto.randomUUID().slice(0, 8);
 
     const filename = `${safeNom}_${safePrenom}_QCM_PRE_${uid}.pdf`.replaceAll(" ", "_");
@@ -477,7 +478,8 @@ document.getElementById("export").addEventListener("click", async () => {
       localStorage.getItem("aqm_session") ||
       `${centre}_${new Date().toISOString().slice(0, 10)}`;
 
-    const path = `${sessionForPath}/${filename}`;
+    const safeSession = safeKey(sessionForPath);
+    const path = `${safeSession}/${filename}`;
 
     status.textContent = "Upload vers cloud…";
 

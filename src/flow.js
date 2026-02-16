@@ -17,6 +17,14 @@ export function getSessionName() {
   );
 }
 
+export function safeKey(s) {
+  return (s || "")
+    .normalize("NFD")                 // enlève accents
+    .replace(/[\u0300-\u036f]/g, "")  // enlève diacritiques
+    .replace(/[^a-zA-Z0-9-_]/g, "_")  // remplace reste par _
+    .toLowerCase();
+}
+
 
 // ======================
 // NAV
