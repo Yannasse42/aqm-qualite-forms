@@ -1,7 +1,7 @@
 import "./style.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf, savePostAnswers, loadAllAnswers, loadProfile} from "./flow.js";
+import { getSessionName, goHome, markDone, titleCaseName, loadProfile, safeKey, uploadPdf, savePostAnswers, loadAllAnswers} from "./flow.js";
 
 
 const QUESTIONS = [
@@ -441,12 +441,24 @@ function buildPrintableClone() {
 function downloadJson(filename, obj) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
+
+  // ✅ download desktop
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+
+  // ✅ fallback iOS/Safari (si download bloqué)
+  // ouvre le fichier dans un nouvel onglet
+  setTimeout(() => {
+    try { window.open(url, "_blank"); } catch {}
+  }, 0);
+
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
 
 /* ===== Export PDF + Upload + JSON ===== */
 
@@ -518,8 +530,22 @@ document.getElementById("export").addEventListener("click", async () => {
     const uid = crypto.randomUUID().slice(0, 8);
     const filenamePdf = `${safeNom}_${safePrenom}_QCM_POST_${uid}.pdf`;
 
-    // ✅ sauver answers POST + récupérer PRE/POST fusionné
+    // ✅ collect POST
     const postAnswers = collectAnswers(QUESTIONS);
+
+    // ✅ Pré-download immédiat (important iOS/Safari)
+    const filenameJson = `${safeNom}_${safePrenom}_PRE_POST_RESULTS_${uid}.json`;
+    downloadJson(filenameJson, {
+      version: 1,
+      session: sessionName,
+      identity: { nom, prenom, centre },
+      pre: null,
+      post: postAnswers,
+      exportedAt: new Date().toISOString(),
+      note: "preview (final merged next)"
+    });
+
+    // ✅ ensuite seulement les await
     await savePostAnswers(sessionName, postAnswers);
 
     const all = await loadAllAnswers(sessionName);
@@ -534,9 +560,9 @@ document.getElementById("export").addEventListener("click", async () => {
       exportedAt: new Date().toISOString(),
     };
 
-    // option : télécharger JSON en local
-    const filenameJson = `${safeNom}_${safePrenom}_PRE_POST_RESULTS_${uid}.json`;
+    // ✅ re-download final (desktop OK / mobile ouvre aussi)
     downloadJson(filenameJson, merged);
+
 
     // upload pdf
     const params = new URLSearchParams(window.location.search);
