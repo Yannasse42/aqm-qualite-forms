@@ -556,9 +556,10 @@ document.getElementById("export").addEventListener("click", async () => {
       session: sessionName,
       identity: prof,
       pre: all?.pre_answers || null,
-      post: all?.post_answers || null,
+      post: postAnswers, // ✅ direct, pas depuis DB
       exportedAt: new Date().toISOString(),
     };
+
 
     // ✅ re-download final (desktop OK / mobile ouvre aussi)
     downloadJson(filenameJson, merged);
@@ -566,8 +567,7 @@ document.getElementById("export").addEventListener("click", async () => {
 
     // upload pdf
     const params = new URLSearchParams(window.location.search);
-    const sessionForPath = params.get("session") || sessionName || `${centre}_${new Date().toISOString().slice(0, 10)}`;
-    const safeSession = safeKey(sessionForPath);
+    const safeSession = safeKey(sessionName);
     const pathPdf = `${safeSession}/${filenamePdf}`;
 
     status.textContent = "Upload vers cloud…";

@@ -515,14 +515,9 @@ document.getElementById("export").addEventListener("click", async () => {
     const filename = `${safeNom}_${safePrenom}_QCM_PRE_${uid}.pdf`.replaceAll(" ", "_");
 
     // Même logique de session/path que POST
-    const params = new URLSearchParams(window.location.search);
-    const sessionForPath =
-      params.get("session") ||
-      localStorage.getItem("aqm_session") ||
-      `${centre}_${new Date().toISOString().slice(0, 10)}`;
-
-    const safeSession = safeKey(sessionForPath);
+    const safeSession = safeKey(sessionName);
     const path = `${safeSession}/${filename}`;
+
 
     status.textContent = "Upload vers cloud…";
 
@@ -542,7 +537,7 @@ document.getElementById("export").addEventListener("click", async () => {
       status.textContent = "✅ PDF envoyé dans le cloud";
       // PRE: on marque done sur "pre" (comme ton ancien)
       markDone(sessionName, "pre");
-      setTimeout(() => goHome(sessionForPath), 400);
+      setTimeout(() => goHome(sessionName), 400);
     }
   } catch (e) {
     console.error(e);
