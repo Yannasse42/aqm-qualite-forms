@@ -324,13 +324,14 @@ sig.addEventListener("touchend", endDraw);
 document.getElementById("clear").addEventListener("click", () => {
   ctx.clearRect(0, 0, sig.width, sig.height);
 });
-
 function buildPrintableClone() {
   const doc = document.getElementById("doc");
   const clone = doc.cloneNode(true);
 
-  const originalInputs = doc.querySelectorAll('input[type="text"], input[type="email"], input[type="date"]');
-  const cloneInputs = clone.querySelectorAll('input[type="text"], input[type="email"], input[type="date"]');
+  // remplace inputs (text/email/date) par texte lisible
+  const sel = 'input[type="text"], input[type="email"], input[type="date"]';
+  const originalInputs = doc.querySelectorAll(sel);
+  const cloneInputs = clone.querySelectorAll(sel);
 
   cloneInputs.forEach((inp, i) => {
     const val = originalInputs[i]?.value ?? "";
@@ -344,44 +345,53 @@ function buildPrintableClone() {
     inp.replaceWith(span);
   });
 
-  QUESTIONS.forEach((q) => {
-    q.choices.forEach(([k]) => {
-      const id = `${q.id}_${k}`;
-      const o = doc.querySelector(`#${id}`);
-      const c = clone.querySelector(`#${id}`);
-      if (!o || !c) return;
-      const mark = document.createElement("span");
-      mark.textContent = o.checked ? "☑" : "☐";
-      mark.style.fontSize = "16px";
-      c.replaceWith(mark);
-    });
+  // radios/checkbox -> ☑/☐ (si tu en as)
+  clone.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach((inp) => {
+    const id = inp.getAttribute("id");
+    const orig = id ? doc.querySelector(`#${CSS.escape(id)}`) : null;
+
+    const mark = document.createElement("span");
+    mark.textContent = orig?.checked ? "☑" : "☐";
+    mark.style.fontSize = "16px";
+    inp.replaceWith(mark);
   });
 
+  // signature canvas -> image
   const cloneSig = clone.querySelector("#sig");
-  if (cloneSig) {
+  const realSig = document.getElementById("sig");
+  if (cloneSig && realSig) {
     const img = document.createElement("img");
-    img.src = sig.toDataURL("image/png");
-    img.style.maxWidth = "520px";
+    img.src = realSig.toDataURL("image/png");
     img.style.width = "100%";
-    img.style.border = "1px solid rgba(0,0,0,.35)";
+    img.style.border = "1px solid rgba(0,0,0,.25)";
     img.style.borderRadius = "10px";
     cloneSig.replaceWith(img);
   }
 
+  // supprime les boutons/status dans le clone
+  ["export", "status", "clear", "back"].forEach((id) => clone.querySelector(`#${id}`)?.remove());
+  clone.querySelectorAll("button").forEach((b) => b.remove());
+
+  // wrapper hors écran avec largeur A4 FIXE (super important)
   const wrapper = document.createElement("div");
   wrapper.style.position = "fixed";
   wrapper.style.left = "-10000px";
   wrapper.style.top = "0";
-  wrapper.style.width = doc.offsetWidth + "px";
+  wrapper.style.background = "#fff";
+  wrapper.style.width = "794px";      // A4 @96dpi
+  wrapper.style.padding = "0";
+  wrapper.style.margin = "0";
 
-  ["export", "status", "clear"].forEach((id) => clone.querySelector(`#${id}`)?.remove());
-  clone.querySelectorAll("button").forEach((b) => b.remove());
+  // forcer le clone à prendre la largeur
+  clone.style.width = "794px";
+  clone.style.maxWidth = "794px";
 
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
   return { wrapper, clone };
 }
+
 
 document.getElementById("export").addEventListener("click", async () => {
   const status = document.getElementById("status");
@@ -390,28 +400,40 @@ document.getElementById("export").addEventListener("click", async () => {
   const { wrapper, clone } = buildPrintableClone();
 
   try {
-    const pdf = new jsPDF("p", "mm", "a4");
+    const pdf = new jsPDF({ orientation: "p", unit: "px", format: "a4" });
+
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    let y = 10;
-    const marginX = 10;
+    let y = 24;
+    const marginX = 24;
 
-    async function addBlockToPdf(el, scale = 1.5) {
-      const canvas = await html2canvas(el, { scale, useCORS: true });
-      const imgData = canvas.toDataURL("image/jpeg", 0.82);
+    async function addBlockToPdf(el, scale = 2) {
+      // attendre chargement des polices (évite layout cassé)
+      if (document.fonts?.ready) await document.fonts.ready;
 
+      const canvas = await html2canvas(el, {
+        scale,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        width: el.scrollWidth,
+        windowWidth: el.scrollWidth,
+      });
+
+      const imgData = canvas.toDataURL("image/png"); // PNG = net
       const imgW = pageW - marginX * 2;
       const imgH = (canvas.height * imgW) / canvas.width;
 
-      if (y + imgH > pageH - 10) {
+      if (y + imgH > pageH - 24) {
         pdf.addPage();
-        y = 10;
+        y = 24;
       }
 
-      pdf.addImage(imgData, "JPEG", marginX, y, imgW, imgH);
-      y += imgH + 6;
+      pdf.addImage(imgData, "PNG", marginX, y, imgW, imgH);
+      y += imgH + 16;
     }
+
 
     const header = clone.querySelector(".header");
     const sections = clone.querySelectorAll(".section");
