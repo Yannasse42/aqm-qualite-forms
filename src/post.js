@@ -438,28 +438,6 @@ function buildPrintableClone() {
   return { wrapper, clone, A4PX };
 }
 
-function downloadJson(filename, obj) {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-
-  // ✅ download desktop
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  // ✅ fallback iOS/Safari (si download bloqué)
-  // ouvre le fichier dans un nouvel onglet
-  setTimeout(() => {
-    try { window.open(url, "_blank"); } catch {}
-  }, 0);
-
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-
 /* ===== Export PDF + Upload + JSON ===== */
 
 document.getElementById("export").addEventListener("click", async () => {
@@ -533,36 +511,8 @@ document.getElementById("export").addEventListener("click", async () => {
     // ✅ collect POST
     const postAnswers = collectAnswers(QUESTIONS);
 
-    // ✅ Pré-download immédiat (important iOS/Safari)
-    const filenameJson = `${safeNom}_${safePrenom}_PRE_POST_RESULTS_${uid}.json`;
-    downloadJson(filenameJson, {
-      version: 1,
-      session: sessionName,
-      identity: { nom, prenom, centre },
-      pre: null,
-      post: postAnswers,
-      exportedAt: new Date().toISOString(),
-      note: "preview (final merged next)"
-    });
-
     // ✅ ensuite seulement les await
     await savePostAnswers(sessionName, postAnswers);
-
-    const all = await loadAllAnswers(sessionName);
-    const prof = await loadProfile(sessionName);
-
-    const merged = {
-      version: 1,
-      session: sessionName,
-      identity: prof,
-      pre: all?.pre_answers || null,
-      post: postAnswers, // ✅ direct, pas depuis DB
-      exportedAt: new Date().toISOString(),
-    };
-
-
-    // ✅ re-download final (desktop OK / mobile ouvre aussi)
-    downloadJson(filenameJson, merged);
 
 
     // upload pdf
